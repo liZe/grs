@@ -85,13 +85,18 @@ class Window(Gtk.ApplicationWindow):
         super(Gtk.ApplicationWindow, self).__init__(application=application)
         self.set_title('Gnome RSS Stalker')
         self.set_hide_titlebar_when_maximized(True)
-        self.set_icon_name('text-html')
+        self.set_icon_name('edit-find')
 
         self.panel = Gtk.HPaned()
         self.feed_list = FeedList()
-        self.panel.add1(self.feed_list)
         self.article_list = ArticleList()
-        self.panel.add2(self.article_list)
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.add(self.feed_list)
+        self.panel.add1(scroll)
+        scroll = Gtk.ScrolledWindow()
+        scroll.add(self.article_list)
+        self.panel.add2(scroll)
         self.add(self.panel)
 
         self.feed_list.connect(

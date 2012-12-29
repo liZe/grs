@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Feed Stalker
+Name[fr]=Suiveur de flux
+Comment=Follow RSS and Atom feeds
+Comment[fr]=Suivre les flux RSS et Atom
+Exec=grs %U
+StartupNotify=true
+Terminal=false
+Type=Application
+Icon=edit-find
+Categories=GTK;GNOME;Utility;Network;
