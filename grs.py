@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from gi.repository import Gtk
+from gi.repository import GLib, Gtk
 
 import sys
 import os
@@ -55,9 +55,9 @@ class Feed(object):
             urllib.request.urlopen(self.config['url']).read())
         if '}' in self.xml.tag:
             self.namespace = self.xml.tag[:self.xml.tag.index('}') + 1]
-        self.articles = (
+        self.articles = [
             Article(self, tag) for tag_name in ('item', 'entry')
-            for tag in self.xml.iter(self.namespace + tag_name))
+            for tag in self.xml.iter(self.namespace + tag_name)]
 
 
 class FeedList(Gtk.TreeView):
@@ -72,10 +72,6 @@ class FeedList(Gtk.TreeView):
         pane_column.add_attribute(pane_cell, 'text', 0)
         self.append_column(pane_column)
 
-        self.update()
-
-    def update(self):
-        self.props.model.clear()
         for section in CONFIG.sections():
             self.props.model.append((section, Feed(section)))
 
@@ -100,17 +96,26 @@ class Window(Gtk.ApplicationWindow):
         self.add(self.panel)
 
         self.feed_list.connect(
-            'row-activated', lambda treeview, path, view:
-            self.article_list.update(treeview.get_model()[path][1]))
+            'cursor-changed', lambda treeview: self.article_list.update(
+                treeview.props.model[treeview.get_cursor()[0][0]][-1]))
         self.article_list.connect(
-            'row-activated', lambda treeview, path, view:
-            subprocess.call(['epiphany', treeview.get_model()[path][1].link]))
+            'row-activated', lambda treeview, path, view: subprocess.call(
+                ['epiphany', treeview.props.model[path][-1].link]))
         self.connect('destroy', lambda window: sys.exit())
 
 
 class GRS(Gtk.Application):
     def do_activate(self):
-        Window(self).show_all()
+        self.window = Window(self)
+        self.window.show_all()
+        GLib.timeout_add_seconds(180, lambda: self.update() or True)
+
+    def update(self):
+        for feed_view in self.window.feed_list.props.model:
+            feed = feed_view[-1]
+            if self.window.article_list.props.model[0][-1].feed == feed:
+                self.window.article_list.update(feed)
+
 
 if __name__ == '__main__':
     GRS().run(sys.argv)
