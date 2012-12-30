@@ -73,7 +73,8 @@ class FeedList(Gtk.TreeView):
         self.append_column(pane_column)
 
         for section in CONFIG.sections():
-            self.props.model.append((section, Feed(section)))
+            if section != '*':
+                self.props.model.append((section, Feed(section)))
 
 
 class Window(Gtk.ApplicationWindow):
@@ -100,7 +101,8 @@ class Window(Gtk.ApplicationWindow):
                 treeview.props.model[treeview.get_cursor()[0][0]][-1]))
         self.article_list.connect(
             'row-activated', lambda treeview, path, view: subprocess.call(
-                ['epiphany', treeview.props.model[path][-1].link]))
+                CONFIG.get('*', 'browser', fallback='firefox').split() +
+                [treeview.props.model[path][-1].link]))
         self.connect('destroy', lambda window: sys.exit())
 
 
@@ -108,7 +110,9 @@ class GRS(Gtk.Application):
     def do_activate(self):
         self.window = Window(self)
         self.window.show_all()
-        GLib.timeout_add_seconds(180, lambda: self.update() or True)
+        GLib.timeout_add_seconds(
+            int(CONFIG.get('*', 'timer', fallback='300')),
+            lambda: self.update() or True)
 
     def update(self):
         for feed_view in self.window.feed_list.props.model:
