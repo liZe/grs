@@ -117,6 +117,7 @@ class GRS(Gtk.Application):
     def update(self):
         for feed_view in self.window.feed_list.props.model:
             feed = feed_view[-1]
+            feed.update()
             if self.window.article_list.props.model[0][-1].feed == feed:
                 self.window.article_list.update(feed)
 
