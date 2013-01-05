@@ -10,7 +10,7 @@ import sys
 import urllib.request
 from collections import defaultdict
 from html import escape
-from gi.repository import GLib, Gtk
+from gi.repository import GLib, Gtk, Notify
 from xml.etree import ElementTree
 
 
@@ -104,6 +104,11 @@ class Feed(object):
             Article(self, tag) for tag_name in ('item', 'entry')
             for tag in self.xml.iter(self.namespace + tag_name)]
         CACHE[self.config['url']] &= {art.guid for art in self.articles}
+        for article in self.articles:
+            if not article.read:
+                Notify.Notification.new(
+                    'GRS', '%s - %s' % (self.name, article.title),
+                    'edit-find').show()
 
 
 class FeedList(Gtk.TreeView):
@@ -160,6 +165,7 @@ class Window(Gtk.ApplicationWindow):
 
 class GRS(Gtk.Application):
     def do_activate(self):
+        Notify.init('GRS')
         self.window = Window(self)
         self.window.show_all()
         GLib.timeout_add_seconds(
