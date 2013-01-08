@@ -5,9 +5,9 @@ import html.parser
 import os
 import re
 import pickle
-import subprocess
 import sys
 import urllib.request
+import webbrowser
 from collections import defaultdict
 from html import escape
 from gi.repository import GLib, Gtk, Notify
@@ -63,7 +63,7 @@ class Article(object):
 class ArticleList(Gtk.TreeView):
     def __init__(self):
         super(ArticleList, self).__init__()
-        self.set_model(Gtk.ListStore(str, object))
+        self.set_model(Gtk.ListStore(object))
         self.set_headers_visible(False)
 
         pane_column = Gtk.TreeViewColumn()
@@ -77,11 +77,11 @@ class ArticleList(Gtk.TreeView):
         self.set_cursor(len(self.props.model), None)  # Remove cursor
         self.props.model.clear()
         for article in feed.articles:
-            self.props.model.append((article.title, article))
+            self.props.model.append((article,))
 
     @staticmethod
     def _render_cell(column, cell, model, iter_, destroy):
-        article = model[iter_][-1]
+        article = model[iter_][0]
         cell.set_property('markup', '<big>%s</big>\n<small>%s</small>' % (
             ('%s' if article.read else '<b>%s</b>') % escape(article.title),
             textify(article.description)))
@@ -116,7 +116,7 @@ class Feed(object):
 class FeedList(Gtk.TreeView):
     def __init__(self):
         super(FeedList, self).__init__()
-        self.set_model(Gtk.ListStore(str, object))
+        self.set_model(Gtk.ListStore(object))
         self.set_headers_visible(False)
 
         pane_column = Gtk.TreeViewColumn()
@@ -126,12 +126,11 @@ class FeedList(Gtk.TreeView):
         self.append_column(pane_column)
 
         for section in CONFIG.sections():
-            if section != '*':
-                self.props.model.append((section, Feed(section)))
+            self.props.model.append((Feed(section),))
 
     @staticmethod
     def _render_cell(column, cell, model, iter_, destroy):
-        feed = model[iter_][-1]
+        feed = model[iter_][0]
         new_articles = len(
             [True for article in feed.articles if not article.read])
         cell.set_property('markup', '<b>%s (%i)</b>' % (
@@ -159,14 +158,13 @@ class Window(Gtk.ApplicationWindow):
 
         self.feed_list.connect(
             'cursor-changed', lambda treeview: self.article_list.update(
-                treeview.props.model[treeview.get_cursor()[0][0]][-1]))
+                treeview.props.model[treeview.get_cursor()[0][0]][0]))
         self.article_list.connect(
-            'row-activated', lambda treeview, path, view: subprocess.Popen(
-                CONFIG.get('*', 'browser', fallback='firefox').split() +
-                [treeview.props.model[path][-1].link]))
+            'row-activated', lambda treeview, path, view:
+            webbrowser.open(treeview.props.model[path][0].link))
         self.article_list.connect(
             'cursor-changed', lambda treeview:
-            (treeview.props.model[treeview.get_cursor()[0][0]][-1].set_read()
+            (treeview.props.model[treeview.get_cursor()[0][0]][0].set_read()
             if treeview.get_cursor()[0] else None) or
             self.feed_list.props.window.invalidate_rect(
                 self.feed_list.get_visible_rect(), invalidate_children=True))
@@ -180,18 +178,16 @@ class GRS(Gtk.Application):
         Notify.init('GRS')
         self.window = Window(self)
         self.window.show_all()
-        GLib.timeout_add_seconds(
-            int(CONFIG.get('*', 'timer', fallback='300')),
-            lambda: self.update() or True)
+        GLib.timeout_add_seconds(180, lambda: self.update() or True)
         self.update()
 
     def update(self):
         model = self.window.feed_list.props.model
         for feed_view in model:
-            feed = feed_view[-1]
+            feed = feed_view[0]
             feed.update()
             cursor = self.window.feed_list.get_cursor()[0]
-            if cursor and model[cursor[0]][-1] == feed:
+            if cursor and model[cursor[0]][0] == feed:
                 self.window.article_list.update(feed)
             while Gtk.events_pending():
                 Gtk.main_iteration()
