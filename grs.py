@@ -93,9 +93,10 @@ class Feed(object):
         self.config = CONFIG[name]
         self.xml = None
         self.namespace = ''
-        self.update()
+        self.articles = []
 
     def update(self):
+        old_articles = [article.guid for article in self.articles]
         self.xml = ElementTree.fromstring(
             urllib.request.urlopen(self.config['url']).read())
         if '}' in self.xml.tag:
@@ -103,9 +104,10 @@ class Feed(object):
         self.articles = [
             Article(self, tag) for tag_name in ('item', 'entry')
             for tag in self.xml.iter(self.namespace + tag_name)]
-        CACHE[self.config['url']] &= {art.guid for art in self.articles}
+        CACHE[self.config['url']] &= {
+            article.guid for article in self.articles}
         for article in self.articles:
-            if not article.read:
+            if not article.read and article.guid not in old_articles:
                 Notify.Notification.new(
                     'GRS', '%s - %s' % (self.name, article.title),
                     'edit-find').show()
@@ -120,12 +122,20 @@ class FeedList(Gtk.TreeView):
         pane_column = Gtk.TreeViewColumn()
         pane_cell = Gtk.CellRendererText()
         pane_column.pack_start(pane_cell, True)
-        pane_column.add_attribute(pane_cell, 'text', 0)
+        pane_column.set_cell_data_func(pane_cell, self._render_cell)
         self.append_column(pane_column)
 
         for section in CONFIG.sections():
             if section != '*':
                 self.props.model.append((section, Feed(section)))
+
+    @staticmethod
+    def _render_cell(column, cell, model, iter_, destroy):
+        feed = model[iter_][-1]
+        new_articles = len(
+            [True for article in feed.articles if not article.read])
+        cell.set_property('markup', '<b>%s (%i)</b>' % (
+            feed.name, new_articles) if new_articles else feed.name)
 
 
 class Window(Gtk.ApplicationWindow):
@@ -156,8 +166,10 @@ class Window(Gtk.ApplicationWindow):
                 [treeview.props.model[path][-1].link]))
         self.article_list.connect(
             'cursor-changed', lambda treeview:
-            treeview.props.model[treeview.get_cursor()[0][0]][-1].set_read()
-            if treeview.get_cursor()[0] else None)
+            (treeview.props.model[treeview.get_cursor()[0][0]][-1].set_read()
+            if treeview.get_cursor()[0] else None) or
+            self.feed_list.props.window.invalidate_rect(
+                self.feed_list.get_visible_rect(), invalidate_children=True))
         self.connect(
             'destroy', lambda window:
             pickle.dump(CACHE, open(CACHE_PATH, 'wb')) or sys.exit())
@@ -171,13 +183,18 @@ class GRS(Gtk.Application):
         GLib.timeout_add_seconds(
             int(CONFIG.get('*', 'timer', fallback='300')),
             lambda: self.update() or True)
+        self.update()
 
     def update(self):
-        for feed_view in self.window.feed_list.props.model:
+        model = self.window.feed_list.props.model
+        for feed_view in model:
             feed = feed_view[-1]
             feed.update()
-            if self.window.article_list.props.model[0][-1].feed == feed:
+            cursor = self.window.feed_list.get_cursor()[0]
+            if cursor and model[cursor[0]][-1] == feed:
                 self.window.article_list.update(feed)
+            while Gtk.events_pending():
+                Gtk.main_iteration()
         pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
 
 
