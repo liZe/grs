@@ -47,7 +47,6 @@ class ListView(Gtk.TreeView):
 class Article(object):
     def __init__(self, feed, tag):
         self.feed = feed
-        self.read = property(lambda self: self.guid in CACHE[self.feed.url])
         self.title = tag.find(self.feed.namespace + 'title').text
         link_tag = tag.find(self.feed.namespace + 'link')
         self.link = link_tag.attrib.get('href') or link_tag.text
@@ -64,6 +63,10 @@ class Article(object):
             if guid_tag is not None and guid_tag.text:
                 self.guid = guid_tag.text
                 break
+
+    @property
+    def read(self):
+        return self.guid in CACHE[self.feed.url]
 
 
 class ArticleList(ListView):
