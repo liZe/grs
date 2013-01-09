@@ -1,15 +1,14 @@
 #!/usr/bin/env python
 
 import configparser
-import html.parser
 import os
-import re
 import pickle
+import re
 import sys
 import urllib.request
 import webbrowser
 from collections import defaultdict
-from html import escape
+from html import escape, parser
 from gi.repository import GLib, Gtk, Notify
 from xml.etree import ElementTree
 
@@ -25,44 +24,15 @@ CACHE = (
 
 def textify(string):
     content = []
-    parser = html.parser.HTMLParser()
-    parser.handle_data = content.append
-    parser.feed(string)
+    html_parser = parser.HTMLParser()
+    html_parser.handle_data = content.append
+    html_parser.feed(string)
     return re.sub('\s+', ' ', ''.join(content).replace('\n', ' ').strip())
 
 
-class Article(object):
-    def __init__(self, feed, tag):
-        self.feed = feed
-        self.tag = tag
-        self.title = self.tag.find(self.feed.namespace + 'title').text
-        link_tag = self.tag.find(self.feed.namespace + 'link')
-        self.link = link_tag.attrib.get('href') or link_tag.text
-        self.description = ''
-        for name in ('description', 'summary', 'content'):
-            tag = self.tag.find(self.feed.namespace + name)
-            if tag is not None and (tag.text or len(tag)):
-                self.description = (tag.text or ElementTree.tostring(
-                    tag[0], encoding='unicode'))
-                break
-        self.guid = None
-        for name in ('id', 'guid', 'link'):
-            tag = self.tag.find(self.feed.namespace + name)
-            if tag is not None and tag.text:
-                self.guid = tag.text
-                break
-
-    def set_read(self):
-        CACHE[self.feed.config['url']].add(self.guid)
-
-    @property
-    def read(self):
-        return self.guid in CACHE[self.feed.config['url']]
-
-
-class ArticleList(Gtk.TreeView):
+class ListView(Gtk.TreeView):
     def __init__(self):
-        super(ArticleList, self).__init__()
+        super(ListView, self).__init__()
         self.set_model(Gtk.ListStore(object))
         self.set_headers_visible(False)
 
@@ -73,14 +43,37 @@ class ArticleList(Gtk.TreeView):
         pane_column.set_cell_data_func(pane_cell, self._render_cell)
         self.append_column(pane_column)
 
+
+class Article(object):
+    def __init__(self, feed, tag):
+        self.feed = feed
+        self.read = property(lambda self: self.guid in CACHE[self.feed.url])
+        self.title = tag.find(self.feed.namespace + 'title').text
+        link_tag = tag.find(self.feed.namespace + 'link')
+        self.link = link_tag.attrib.get('href') or link_tag.text
+        self.description = ''
+        for name in ('description', 'summary', 'content'):
+            desc_tag = tag.find(self.feed.namespace + name)
+            if desc_tag is not None and (desc_tag.text or len(desc_tag)):
+                self.description = (desc_tag.text or ElementTree.tostring(
+                    desc_tag[0], encoding='unicode'))
+                break
+        self.guid = None
+        for name in ('id', 'guid', 'link'):
+            guid_tag = tag.find(self.feed.namespace + name)
+            if guid_tag is not None and guid_tag.text:
+                self.guid = guid_tag.text
+                break
+
+
+class ArticleList(ListView):
     def update(self, feed):
         self.set_cursor(len(self.props.model), None)  # Remove cursor
         self.props.model.clear()
         for article in feed.articles:
             self.props.model.append((article,))
 
-    @staticmethod
-    def _render_cell(column, cell, model, iter_, destroy):
+    def _render_cell(self, column, cell, model, iter_, destroy):
         article = model[iter_][0]
         cell.set_property('markup', '<big>%s</big>\n<small>%s</small>' % (
             ('%s' if article.read else '<b>%s</b>') % escape(article.title),
@@ -90,22 +83,17 @@ class ArticleList(Gtk.TreeView):
 class Feed(object):
     def __init__(self, name):
         self.name = name
-        self.config = CONFIG[name]
-        self.xml = None
-        self.namespace = ''
+        self.url = CONFIG[name]['url']
         self.articles = []
 
     def update(self):
         old_articles = [article.guid for article in self.articles]
-        self.xml = ElementTree.fromstring(
-            urllib.request.urlopen(self.config['url']).read())
-        if '}' in self.xml.tag:
-            self.namespace = self.xml.tag[:self.xml.tag.index('}') + 1]
+        xml = ElementTree.fromstring(urllib.request.urlopen(self.url).read())
+        self.namespace = (re.findall('\{.*\}', xml.tag) or ['']).pop()
         self.articles = [
             Article(self, tag) for tag_name in ('item', 'entry')
-            for tag in self.xml.iter(self.namespace + tag_name)]
-        CACHE[self.config['url']] &= {
-            article.guid for article in self.articles}
+            for tag in xml.iter(self.namespace + tag_name)]
+        CACHE[self.url] &= {article.guid for article in self.articles}
         for article in self.articles:
             if not article.read and article.guid not in old_articles:
                 Notify.Notification.new(
@@ -113,18 +101,9 @@ class Feed(object):
                     'edit-find').show()
 
 
-class FeedList(Gtk.TreeView):
+class FeedList(ListView):
     def __init__(self):
         super(FeedList, self).__init__()
-        self.set_model(Gtk.ListStore(object))
-        self.set_headers_visible(False)
-
-        pane_column = Gtk.TreeViewColumn()
-        pane_cell = Gtk.CellRendererText()
-        pane_column.pack_start(pane_cell, True)
-        pane_column.set_cell_data_func(pane_cell, self._render_cell)
-        self.append_column(pane_column)
-
         for section in CONFIG.sections():
             self.props.model.append((Feed(section),))
 
@@ -156,21 +135,23 @@ class Window(Gtk.ApplicationWindow):
         self.panel.add2(scroll)
         self.add(self.panel)
 
-        self.feed_list.connect(
-            'cursor-changed', lambda treeview: self.article_list.update(
-                treeview.props.model[treeview.get_cursor()[0][0]][0]))
-        self.article_list.connect(
-            'row-activated', lambda treeview, path, view:
-            webbrowser.open(treeview.props.model[path][0].link))
-        self.article_list.connect(
-            'cursor-changed', lambda treeview:
-            (treeview.props.model[treeview.get_cursor()[0][0]][0].set_read()
-            if treeview.get_cursor()[0] else None) or
-            self.feed_list.props.window.invalidate_rect(
-                self.feed_list.get_visible_rect(), invalidate_children=True))
-        self.connect(
-            'destroy', lambda window:
-            pickle.dump(CACHE, open(CACHE_PATH, 'wb')) or sys.exit())
+        self.feed_list.connect('cursor-changed', self._feed_changed)
+        self.article_list.connect('row-activated', self._article_activated)
+        self.article_list.connect('cursor-changed', self._article_changed)
+
+    def _feed_changed(self, treeview):
+        self.article_list.update(
+            treeview.props.model[treeview.get_cursor()[0][0]][0])
+
+    def _article_activated(self, treeview, path, view):
+        webbrowser.open(treeview.props.model[path][0].link)
+
+    def _article_changed(self, treeview):
+        if treeview.get_cursor()[0]:
+            article = treeview.props.model[treeview.get_cursor()[0][0]][0]
+            CACHE[article.feed.url].add(article.guid)
+        self.feed_list.props.window.invalidate_rect(
+            self.feed_list.get_visible_rect(), invalidate_children=True)
 
 
 class GRS(Gtk.Application):
@@ -178,8 +159,9 @@ class GRS(Gtk.Application):
         Notify.init('GRS')
         self.window = Window(self)
         self.window.show_all()
-        GLib.timeout_add_seconds(180, lambda: self.update() or True)
+        self.window.connect('destroy', lambda window: self.quit())
         self.update()
+        GLib.timeout_add_seconds(180, lambda: self.update() or True)
 
     def update(self):
         model = self.window.feed_list.props.model
@@ -192,6 +174,10 @@ class GRS(Gtk.Application):
             while Gtk.events_pending():
                 Gtk.main_iteration()
         pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
+
+    def quit(self):
+        pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
+        sys.exit()
 
 
 if __name__ == '__main__':
