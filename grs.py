@@ -9,7 +9,7 @@ import urllib.request
 import webbrowser
 from collections import defaultdict
 from html import escape, parser
-from gi.repository import GLib, Gtk, Notify
+from gi.repository import GLib, Gtk, Notify, Soup
 from xml.etree import ElementTree
 
 
@@ -20,6 +20,7 @@ CONFIG.read(CONFIG_PATH)
 CACHE = (
     pickle.load(open(CACHE_PATH, 'rb')) if os.path.exists(CACHE_PATH)
     else defaultdict(set))
+SESSION = Soup.SessionAsync()
 
 
 def textify(string):
@@ -90,8 +91,13 @@ class Feed(object):
         self.articles = []
 
     def update(self):
+        SESSION.queue_message(
+            Soup.Message.new('GET', self.url),
+            lambda session, message, *args: self.update_after(message), None)
+
+    def update_after(self, message):
+        xml = ElementTree.fromstring(message.props.response_body.data)
         old_articles = [article.guid for article in self.articles]
-        xml = ElementTree.fromstring(urllib.request.urlopen(self.url).read())
         self.namespace = (re.findall('\{.*\}', xml.tag) or ['']).pop()
         self.articles = [
             Article(self, tag) for tag_name in ('item', 'entry')
