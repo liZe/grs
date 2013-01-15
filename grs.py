@@ -5,7 +5,6 @@ import os
 import pickle
 import re
 import sys
-import urllib.request
 import webbrowser
 from collections import defaultdict
 from html import escape, parser
@@ -17,10 +16,10 @@ CONFIG_PATH = os.path.expanduser('~/.config/grs')
 CACHE_PATH = os.path.expanduser('~/.cache/grs')
 CONFIG = configparser.SafeConfigParser()
 CONFIG.read(CONFIG_PATH)
+SESSION = Soup.SessionAsync()
 CACHE = (
     pickle.load(open(CACHE_PATH, 'rb')) if os.path.exists(CACHE_PATH)
     else defaultdict(set))
-SESSION = Soup.SessionAsync()
 
 
 def textify(string):
@@ -90,25 +89,6 @@ class Feed(object):
         self.url = CONFIG[name]['url']
         self.articles = []
 
-    def update(self):
-        SESSION.queue_message(
-            Soup.Message.new('GET', self.url),
-            lambda session, message, *args: self.update_after(message), None)
-
-    def update_after(self, message):
-        xml = ElementTree.fromstring(message.props.response_body.data)
-        old_articles = [article.guid for article in self.articles]
-        self.namespace = (re.findall('\{.*\}', xml.tag) or ['']).pop()
-        self.articles = [
-            Article(self, tag) for tag_name in ('item', 'entry')
-            for tag in xml.iter(self.namespace + tag_name)]
-        CACHE[self.url] &= {article.guid for article in self.articles}
-        for article in self.articles:
-            if not article.read and article.guid not in old_articles:
-                Notify.Notification.new(
-                    'GRS', '%s - %s' % (self.name, article.title),
-                    'edit-find').show()
-
 
 class FeedList(ListView):
     def __init__(self):
@@ -148,6 +128,29 @@ class Window(Gtk.ApplicationWindow):
         self.article_list.connect('row-activated', self._article_activated)
         self.article_list.connect('cursor-changed', self._article_changed)
 
+    def update(self):
+        for feed_view in self.feed_list.props.model:
+            SESSION.queue_message(
+                Soup.Message.new('GET', feed_view[0].url),
+                self.update_after, feed_view[0])
+
+    def update_after(self, session, message, feed):
+        old_articles = [article.guid for article in feed.articles]
+        xml = ElementTree.fromstring(message.props.response_body.data)
+        feed.namespace = (re.findall('\{.*\}', xml.tag) or ['']).pop()
+        feed.articles = [
+            Article(feed, tag) for tag_name in ('item', 'entry')
+            for tag in xml.iter(feed.namespace + tag_name)]
+        CACHE[feed.url] &= {article.guid for article in feed.articles}
+        for article in feed.articles:
+            if not article.read and article.guid not in old_articles:
+                Notify.Notification.new(
+                    'GRS', '%s - %s' % (feed.name, article.title),
+                    'edit-find').show()
+        cursor = self.feed_list.get_cursor()[0]
+        if cursor and self.feed_list.props.model[cursor[0]][0] == feed:
+            self.article_list.update(feed)
+
     def _feed_changed(self, treeview):
         self.article_list.update(
             treeview.props.model[treeview.get_cursor()[0][0]][0])
@@ -159,6 +162,7 @@ class Window(Gtk.ApplicationWindow):
         if treeview.get_cursor()[0]:
             article = treeview.props.model[treeview.get_cursor()[0][0]][0]
             CACHE[article.feed.url].add(article.guid)
+            pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
         self.feed_list.props.window.invalidate_rect(
             self.feed_list.get_visible_rect(), invalidate_children=True)
 
@@ -167,26 +171,10 @@ class GRS(Gtk.Application):
     def do_activate(self):
         Notify.init('GRS')
         self.window = Window(self)
+        self.window.connect('destroy', lambda window: sys.exit())
         self.window.show_all()
-        self.window.connect('destroy', lambda window: self.quit())
-        self.update()
-        GLib.timeout_add_seconds(180, lambda: self.update() or True)
-
-    def update(self):
-        model = self.window.feed_list.props.model
-        for feed_view in model:
-            feed = feed_view[0]
-            feed.update()
-            cursor = self.window.feed_list.get_cursor()[0]
-            if cursor and model[cursor[0]][0] == feed:
-                self.window.article_list.update(feed)
-            while Gtk.events_pending():
-                Gtk.main_iteration()
-        pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
-
-    def quit(self):
-        pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
-        sys.exit()
+        self.window.update()
+        GLib.timeout_add_seconds(180, lambda: self.window.update() or True)
 
 
 if __name__ == '__main__':
