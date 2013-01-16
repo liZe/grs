@@ -43,6 +43,10 @@ class ListView(Gtk.TreeView):
         pane_column.set_cell_data_func(pane_cell, self._render_cell)
         self.append_column(pane_column)
 
+    def redraw(self):
+        self.props.window.invalidate_rect(
+            self.get_visible_rect(), invalidate_children=True)
+
 
 class Article(object):
     def __init__(self, feed, tag):
@@ -127,6 +131,7 @@ class Window(Gtk.ApplicationWindow):
         self.feed_list.connect('cursor-changed', self._feed_changed)
         self.article_list.connect('row-activated', self._article_activated)
         self.article_list.connect('cursor-changed', self._article_changed)
+        self.article_list.connect('button-press-event', self._article_clicked)
 
     def update(self):
         for feed_view in self.feed_list.props.model:
@@ -163,8 +168,17 @@ class Window(Gtk.ApplicationWindow):
             article = treeview.props.model[treeview.get_cursor()[0][0]][0]
             CACHE[article.feed.url].add(article.guid)
             pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
-        self.feed_list.props.window.invalidate_rect(
-            self.feed_list.get_visible_rect(), invalidate_children=True)
+        self.feed_list.redraw()
+
+    def _article_clicked(self, treeview, event):
+        if event.button == 2:  # Middle-click
+            path = treeview.get_path_at_pos(event.x, event.y)
+            if path:
+                article = treeview.props.model[path[0]][0]
+                CACHE[article.feed.url].discard(article.guid)
+                treeview.redraw()
+                self.feed_list.redraw()
+                return True
 
 
 class GRS(Gtk.Application):
