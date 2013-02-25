@@ -75,10 +75,14 @@ class Article(object):
 
 class ArticleList(ListView):
     def update(self, feed):
+        cursor = self.get_cursor()[0]
+        active = self.props.model[cursor[0]][0] if cursor else None
         self.set_cursor(len(self.props.model), None)  # Remove cursor
         self.props.model.clear()
         for article in feed.articles:
             self.props.model.append((article,))
+            if active and article.guid == active.guid:
+                self.set_cursor(len(self.props.model) - 1, None)
 
     def _render_cell(self, column, cell, model, iter_, destroy):
         article = model[iter_][0]
@@ -129,6 +133,7 @@ class Window(Gtk.ApplicationWindow):
         self.add(self.panel)
 
         self.feed_list.connect('cursor-changed', self._feed_changed)
+        self.feed_list.connect('button-press-event', self._feed_clicked)
         self.article_list.connect('row-activated', self._article_activated)
         self.article_list.connect('cursor-changed', self._article_changed)
         self.article_list.connect('button-press-event', self._article_clicked)
@@ -175,9 +180,23 @@ class Window(Gtk.ApplicationWindow):
             path = treeview.get_path_at_pos(event.x, event.y)
             if path:
                 article = treeview.props.model[path[0]][0]
-                CACHE[article.feed.url].discard(article.guid)
+                if article.guid in CACHE[article.feed.url]:
+                    CACHE[article.feed.url].discard(article.guid)
+                else:
+                    CACHE[article.feed.url].add(article.guid)
                 treeview.redraw()
                 self.feed_list.redraw()
+                return True
+
+    def _feed_clicked(self, treeview, event):
+        if event.button == 2:  # Middle-click
+            path = treeview.get_path_at_pos(event.x, event.y)
+            if path:
+                feed = treeview.props.model[path[0]][0]
+                for article in feed.articles:
+                    CACHE[feed.url].add(article.guid)
+                treeview.redraw()
+                self.article_list.redraw()
                 return True
 
 
