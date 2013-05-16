@@ -128,6 +128,7 @@ class Window(Gtk.ApplicationWindow):
         scroll.add(self.feed_list)
         self.panel.add1(scroll)
         scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.add(self.article_list)
         self.panel.add2(scroll)
         self.add(self.panel)
@@ -204,6 +205,7 @@ class GRS(Gtk.Application):
     def do_activate(self):
         Notify.init('GRS')
         self.window = Window(self)
+        self.window.maximize()
         self.window.connect('destroy', lambda window: sys.exit())
         self.window.show_all()
         self.window.update()
