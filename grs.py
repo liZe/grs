@@ -156,8 +156,7 @@ class Window(Gtk.ApplicationWindow):
         for article in feed.articles:
             if not article.read and article.guid not in old_articles:
                 Notify.Notification.new(
-                    'GRS', '%s - %s' % (feed.name, article.title),
-                    'edit-find').show()
+                    feed.name, article.title, 'edit-find').show()
         cursor = self.feed_list.get_cursor()[0]
         if cursor and self.feed_list.props.model[cursor[0]][0] == feed:
             self.article_list.update(feed)
@@ -203,7 +202,6 @@ class Window(Gtk.ApplicationWindow):
 
 class GRS(Gtk.Application):
     def do_activate(self):
-        Notify.init('GRS')
         self.window = Window(self)
         self.window.maximize()
         self.window.connect('destroy', lambda window: sys.exit())
