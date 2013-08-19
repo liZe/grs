@@ -202,6 +202,7 @@ class Window(Gtk.ApplicationWindow):
 
 class GRS(Gtk.Application):
     def do_activate(self):
+        Notify.init('GRS')
         self.window = Window(self)
         self.window.maximize()
         self.window.connect('destroy', lambda window: sys.exit())
