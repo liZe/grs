@@ -51,7 +51,7 @@ class ListView(Gtk.TreeView):
 class Article(object):
     def __init__(self, feed, tag):
         self.feed = feed
-        self.title = tag.find(self.feed.namespace + 'title').text
+        self.title = tag.find(self.feed.namespace + 'title').text.strip()
         link_tag = tag.find(self.feed.namespace + 'link')
         self.link = link_tag.attrib.get('href') or link_tag.text
         self.description = ''
