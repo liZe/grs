@@ -96,6 +96,7 @@ class Feed(object):
         self.name = name
         self.url = CONFIG[name]['url']
         self.articles = []
+        self.message = Soup.Message.new('GET', self.url)
 
 
 class FeedList(ListView):
@@ -142,8 +143,7 @@ class Window(Gtk.ApplicationWindow):
     def update(self):
         for feed_view in self.feed_list.props.model:
             SESSION.queue_message(
-                Soup.Message.new('GET', feed_view[0].url),
-                self.update_after, feed_view[0])
+                feed_view[0].message, self.update_after, feed_view[0])
 
     def update_after(self, session, message, feed):
         old_articles = [article.guid for article in feed.articles]
