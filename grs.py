@@ -35,7 +35,6 @@ class ListView(Gtk.TreeView):
         super(ListView, self).__init__()
         self.set_model(Gtk.ListStore(object))
         self.set_headers_visible(False)
-
         pane_column = Gtk.TreeViewColumn()
         pane_cell = Gtk.CellRendererText()
         pane_cell.props.ellipsize = 3  # At the end
@@ -44,7 +43,7 @@ class ListView(Gtk.TreeView):
         self.append_column(pane_column)
 
     def redraw(self):
-        self.props.window.invalidate_rect(
+        self.get_bin_window().invalidate_rect(
             self.get_visible_rect(), invalidate_children=True)
 
 
@@ -108,8 +107,7 @@ class FeedList(ListView):
     @staticmethod
     def _render_cell(column, cell, model, iter_, destroy):
         feed = model[iter_][0]
-        new_articles = len(
-            [True for article in feed.articles if not article.read])
+        new_articles = sum(1 for article in feed.articles if not article.read)
         cell.set_property('markup', '<b>%s (%i)</b>' % (
             feed.name, new_articles) if new_articles else feed.name)
 
