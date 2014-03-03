@@ -170,6 +170,7 @@ class Window(Gtk.ApplicationWindow):
         if treeview.get_cursor()[0]:
             article = treeview.props.model[treeview.get_cursor()[0][0]][0]
             CACHE[article.feed.url].add(article.guid)
+            pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
         self.feed_list.redraw()
 
     def _article_clicked(self, treeview, event):
@@ -183,6 +184,7 @@ class Window(Gtk.ApplicationWindow):
                     CACHE[article.feed.url].add(article.guid)
                 treeview.redraw()
                 self.feed_list.redraw()
+                pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
                 return True
 
     def _feed_clicked(self, treeview, event):
@@ -192,6 +194,7 @@ class Window(Gtk.ApplicationWindow):
                 feed = treeview.props.model[path[0]][0]
                 for article in feed.articles:
                     CACHE[feed.url].add(article.guid)
+                pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
                 treeview.redraw()
                 self.article_list.redraw()
                 return True
@@ -202,9 +205,7 @@ class GRS(Gtk.Application):
         Notify.init('GRS')
         self.window = Window(self)
         self.window.maximize()
-        self.window.connect(
-            'destroy', lambda window:
-            pickle.dump(CACHE, open(CACHE_PATH, 'wb')) or sys.exit())
+        self.window.connect('destroy', lambda window: sys.exit())
         self.window.show_all()
         self.window.update()
         GLib.timeout_add_seconds(180, lambda: self.window.update() or True)
