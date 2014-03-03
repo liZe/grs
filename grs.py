@@ -22,14 +22,6 @@ CACHE = (
     else defaultdict(set))
 
 
-def textify(string):
-    content = []
-    html_parser = parser.HTMLParser()
-    html_parser.handle_data = content.append
-    html_parser.feed(string)
-    return re.sub('\s+', ' ', ''.join(content).replace('\n', ' ').strip())
-
-
 class ListView(Gtk.TreeView):
     def __init__(self):
         super(ListView, self).__init__()
@@ -85,9 +77,13 @@ class ArticleList(ListView):
 
     def _render_cell(self, column, cell, model, iter_, destroy):
         article = model[iter_][0]
+        content = []
+        html_parser = parser.HTMLParser()
+        html_parser.handle_data = content.append
+        html_parser.feed(article.description)
         cell.set_property('markup', '<big>%s</big>\n<small>%s</small>' % (
             ('%s' if article.read else '<b>%s</b>') % escape(article.title),
-            textify(article.description)))
+            re.sub('\s+', ' ', ''.join(content).replace('\n', ' ').strip())))
 
 
 class Feed(object):
