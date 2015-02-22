@@ -142,7 +142,8 @@ class Window(Gtk.ApplicationWindow):
 
     def update_after(self, session, message, feed):
         old_articles = [article.guid for article in feed.articles]
-        xml = ElementTree.fromstring(message.props.response_body.data.strip())
+        xml = ElementTree.fromstring(
+            message.props.response_body_data.get_data().strip())
         feed.namespace = (re.findall('\{.*\}', xml.tag) or ['']).pop()
         feed.articles = [
             Article(feed, tag) for tag_name in ('item', 'entry')
