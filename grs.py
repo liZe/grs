@@ -29,7 +29,6 @@ class ListView(Gtk.TreeView):
         self.set_headers_visible(False)
         pane_column = Gtk.TreeViewColumn()
         pane_cell = Gtk.CellRendererText()
-        pane_cell.props.ellipsize = 3  # At the end
         pane_column.pack_start(pane_cell, True)
         pane_column.set_cell_data_func(pane_cell, self._render_cell)
         self.append_column(pane_column)
@@ -122,6 +121,7 @@ class Window(Gtk.ApplicationWindow):
 
         scroll = Gtk.ScrolledWindow()
         scroll.add(self.feed_list)
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.panel.add1(scroll)
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
