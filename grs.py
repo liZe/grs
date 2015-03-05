@@ -80,7 +80,7 @@ class ArticleList(ListView):
         html_parser = parser.HTMLParser()
         html_parser.handle_data = content.append
         html_parser.feed(article.description)
-        content = ''.join(content)
+        content = ''.join(content)[:1000]
         cell.set_property('markup', '<big>%s</big>\n<small>%s</small>' % (
             ('%s' if article.read else '<b>%s</b>') % escape(article.title),
             re.sub('\s+', ' ', escape(content).replace('\n', ' ').strip())))
