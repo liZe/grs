@@ -23,12 +23,14 @@ CACHE = (
 
 
 class ListView(Gtk.TreeView):
-    def __init__(self):
+    def __init__(self, ellipsize=True):
         super(ListView, self).__init__()
         self.set_model(Gtk.ListStore(object))
         self.set_headers_visible(False)
         pane_column = Gtk.TreeViewColumn()
         pane_cell = Gtk.CellRendererText()
+        if ellipsize:
+            pane_cell.props.ellipsize = 3  # At the end
         pane_column.pack_start(pane_cell, True)
         pane_column.set_cell_data_func(pane_cell, self._render_cell)
         self.append_column(pane_column)
@@ -41,7 +43,8 @@ class ListView(Gtk.TreeView):
 class Article(object):
     def __init__(self, feed, tag):
         self.feed = feed
-        self.title = tag.find(self.feed.namespace + 'title').text.strip()
+        title = tag.find(self.feed.namespace + 'title').text
+        self.title = title.strip() if title else ''
         link_tag = tag.find(self.feed.namespace + 'link')
         self.link = link_tag.attrib.get('href') or link_tag.text
         self.description = ''
@@ -96,7 +99,7 @@ class Feed(object):
 
 class FeedList(ListView):
     def __init__(self):
-        super(FeedList, self).__init__()
+        super(FeedList, self).__init__(ellipsize=False)
         for section in CONFIG.sections():
             self.props.model.append((Feed(section),))
 
