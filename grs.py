@@ -8,7 +8,7 @@ import sys
 import webbrowser
 from collections import defaultdict
 from html import escape, parser
-from gi.repository import GLib, Gtk, Notify, Soup
+from gi.repository import GLib, Gtk, Gdk, Notify, Soup
 from xml.etree import ElementTree
 
 
@@ -20,24 +20,6 @@ SESSION = Soup.SessionAsync()
 CACHE = (
     pickle.load(open(CACHE_PATH, 'rb')) if os.path.exists(CACHE_PATH)
     else defaultdict(set))
-
-
-class ListView(Gtk.TreeView):
-    def __init__(self, ellipsize=True):
-        super(ListView, self).__init__()
-        self.set_model(Gtk.ListStore(object))
-        self.set_headers_visible(False)
-        pane_column = Gtk.TreeViewColumn()
-        pane_cell = Gtk.CellRendererText()
-        if ellipsize:
-            pane_cell.props.ellipsize = 3  # At the end
-        pane_column.pack_start(pane_cell, True)
-        pane_column.set_cell_data_func(pane_cell, self._render_cell)
-        self.append_column(pane_column)
-
-    def redraw(self):
-        self.get_bin_window().invalidate_rect(
-            self.get_visible_rect(), invalidate_children=True)
 
 
 class Article(object):
@@ -66,13 +48,35 @@ class Article(object):
         return self.guid in CACHE[self.feed.url]
 
 
-class ArticleList(ListView):
-    def update(self, feed):
+class Feed(Gtk.TreeView):
+    def __init__(self, name):
+        self.name = name
+        self.url = CONFIG[name]['url']
+        self.articles = []
+        self.message = Soup.Message.new('GET', self.url)
+
+        super().__init__()
+        self.set_model(Gtk.ListStore(object))
+        self.set_headers_visible(False)
+        pane_column = Gtk.TreeViewColumn()
+        pane_cell = Gtk.CellRendererText()
+        pane_cell.props.ellipsize = 3  # At the end
+        pane_column.pack_start(pane_cell, True)
+        pane_column.set_cell_data_func(pane_cell, self._render_cell)
+        self.append_column(pane_column)
+
+        self.connect('row-activated', self._activated)
+
+    def redraw(self):
+        self.get_bin_window().invalidate_rect(
+                self.get_visible_rect(), invalidate_children=True)
+
+    def update(self):
         cursor = self.get_cursor()[0]
         active = self.props.model[cursor[0]][0] if cursor else None
         self.set_cursor(len(self.props.model), None)  # Remove cursor
         self.props.model.clear()
-        for article in feed.articles:
+        for article in self.articles:
             self.props.model.append((article,))
             if active and article.guid == active.guid:
                 self.set_cursor(len(self.props.model) - 1, None)
@@ -88,27 +92,15 @@ class ArticleList(ListView):
             ('%s' if article.read else '<b>%s</b>') % escape(article.title),
             re.sub('\s+', ' ', escape(content).replace('\n', ' ').strip())))
 
-
-class Feed(object):
-    def __init__(self, name):
-        self.name = name
-        self.url = CONFIG[name]['url']
-        self.articles = []
-        self.message = Soup.Message.new('GET', self.url)
+    def _activated(self, treeview, path, view):
+        webbrowser.open(treeview.props.model[path][0].link)
 
 
-class FeedList(ListView):
-    def __init__(self):
-        super(FeedList, self).__init__(ellipsize=False)
-        for section in CONFIG.sections():
-            self.props.model.append((Feed(section),))
-
-    @staticmethod
-    def _render_cell(column, cell, model, iter_, destroy):
-        feed = model[iter_][0]
-        new_articles = sum(1 for article in feed.articles if not article.read)
-        cell.set_property('markup', '<b>%s (%i)</b>' % (
-            feed.name, new_articles) if new_articles else feed.name)
+class FeedList(Gtk.StackSidebar):
+    def set_attention(self, feed):
+        self.props.stack.child_set_property(
+            self.props.stack.get_child_by_name(feed.name), 'needs-attention',
+            any(not article.read for article in feed.articles))
 
 
 class Window(Gtk.ApplicationWindow):
@@ -118,32 +110,32 @@ class Window(Gtk.ApplicationWindow):
         self.set_hide_titlebar_when_maximized(True)
         self.set_icon_name('edit-find')
 
-        self.panel = Gtk.HPaned()
         self.feed_list = FeedList()
-        self.article_list = ArticleList()
-
+        self.feed_list.set_stack(Gtk.Stack())
+        self.feed_list.props.stack.set_transition_type(
+            Gtk.StackTransitionType.CROSSFADE)
+        hbox = Gtk.HBox()
+        hbox.pack_start(self.feed_list, False, False, 0)
         scroll = Gtk.ScrolledWindow()
-        scroll.add(self.feed_list)
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.panel.add1(scroll)
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroll.add(self.article_list)
-        self.panel.add2(scroll)
-        self.add(self.panel)
+        scroll.add(self.feed_list.props.stack)
+        hbox.pack_start(scroll, True, True, 0)
+        self.add(hbox)
 
-        self.feed_list.connect('cursor-changed', self._feed_changed)
         self.feed_list.connect('button-press-event', self._feed_clicked)
-        self.article_list.connect('row-activated', self._article_activated)
-        self.article_list.connect('cursor-changed', self._article_changed)
-        self.article_list.connect('button-press-event', self._article_clicked)
 
-    def update(self):
-        for feed_view in self.feed_list.props.model:
+        for section in CONFIG.sections():
+            feed = Feed(section)
+            self.feed_list.props.stack.add_titled(feed, section, section)
+            feed.connect('cursor-changed', self._article_changed, feed)
+            feed.connect('button-press-event', self._article_clicked, feed)
+
+    def update(self, notify=True):
+        for feed in self.feed_list.props.stack.get_children():
             SESSION.queue_message(
-                feed_view[0].message, self.update_after, feed_view[0])
+                feed.message, self.update_after, feed, notify)
 
-    def update_after(self, session, message, feed):
+    def update_after(self, session, message, feed, notify):
         old_articles = [article.guid for article in feed.articles]
         xml = ElementTree.fromstring(
             message.props.response_body_data.get_data().strip())
@@ -152,30 +144,23 @@ class Window(Gtk.ApplicationWindow):
             Article(feed, tag) for tag_name in ('item', 'entry')
             for tag in xml.iter(feed.namespace + tag_name)]
         CACHE[feed.url] &= {article.guid for article in feed.articles}
-        for article in feed.articles:
-            if not article.read and article.guid not in old_articles:
-                Notify.Notification.new(
-                    feed.name, article.title, 'edit-find').show()
-        cursor = self.feed_list.get_cursor()[0]
-        if cursor and self.feed_list.props.model[cursor[0]][0] == feed:
-            self.article_list.update(feed)
+        if notify:
+            for article in feed.articles:
+                if not article.read and article.guid not in old_articles:
+                    Notify.Notification.new(
+                        feed.name, article.title, 'edit-find').show()
+        feed.update()
+        self.feed_list.set_attention(feed)
 
-    def _feed_changed(self, treeview):
-        self.article_list.update(
-            treeview.props.model[treeview.get_cursor()[0][0]][0])
-
-    def _article_activated(self, treeview, path, view):
-        webbrowser.open(treeview.props.model[path][0].link)
-
-    def _article_changed(self, treeview):
+    def _article_changed(self, treeview, feed):
         if treeview.get_cursor()[0]:
             article = treeview.props.model[treeview.get_cursor()[0][0]][0]
             CACHE[article.feed.url].add(article.guid)
             pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
-        self.feed_list.redraw()
+        self.feed_list.set_attention(feed)
 
-    def _article_clicked(self, treeview, event):
-        if event.button == 2:  # Middle-click
+    def _article_clicked(self, treeview, event, feed):
+        if event.button == Gdk.BUTTON_MIDDLE:
             path = treeview.get_path_at_pos(event.x, event.y)
             if path:
                 article = treeview.props.model[path[0]][0]
@@ -184,21 +169,20 @@ class Window(Gtk.ApplicationWindow):
                 else:
                     CACHE[article.feed.url].add(article.guid)
                 treeview.redraw()
-                self.feed_list.redraw()
                 pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
+                self.feed_list.set_attention(feed)
                 return True
 
-    def _feed_clicked(self, treeview, event):
-        if event.button == 2:  # Middle-click
-            path = treeview.get_path_at_pos(event.x, event.y)
-            if path:
-                feed = treeview.props.model[path[0]][0]
-                for article in feed.articles:
-                    CACHE[feed.url].add(article.guid)
-                pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
-                treeview.redraw()
-                self.article_list.redraw()
-                return True
+    def _feed_clicked(self, feed_list, event):
+        if event.type == getattr(Gdk.EventType, '2BUTTON_PRESS') and (
+                event.button == Gdk.BUTTON_PRIMARY):
+            visible_feed = feed_list.props.stack.get_visible_child()
+            for article in visible_feed.articles:
+                CACHE[visible_feed.url].add(article.guid)
+            pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
+            visible_feed.redraw()
+            feed_list.set_attention(visible_feed)
+            return True
 
 
 class GRS(Gtk.Application):
@@ -208,7 +192,7 @@ class GRS(Gtk.Application):
         self.window.maximize()
         self.window.connect('destroy', lambda window: sys.exit())
         self.window.show_all()
-        self.window.update()
+        self.window.update(notify=False)
         GLib.timeout_add_seconds(180, lambda: self.window.update() or True)
 
 
