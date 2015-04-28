@@ -116,22 +116,23 @@ class Window(Gtk.ApplicationWindow):
             Gtk.StackTransitionType.CROSSFADE)
         hbox = Gtk.HBox()
         hbox.pack_start(self.feed_list, False, False, 0)
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroll.add(self.feed_list.props.stack)
-        hbox.pack_start(scroll, True, True, 0)
+        hbox.pack_start(self.feed_list.props.stack, True, True, 0)
         self.add(hbox)
 
         self.feed_list.connect('button-press-event', self._feed_clicked)
 
         for section in CONFIG.sections():
             feed = Feed(section)
-            self.feed_list.props.stack.add_titled(feed, section, section)
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            scroll.add(feed)
+            self.feed_list.props.stack.add_titled(scroll, section, section)
             feed.connect('cursor-changed', self._article_changed, feed)
             feed.connect('button-press-event', self._article_clicked, feed)
 
     def update(self, notify=True):
-        for feed in self.feed_list.props.stack.get_children():
+        for scroll in self.feed_list.props.stack.get_children():
+            feed = scroll.get_children()[0]
             SESSION.queue_message(
                 feed.message, self.update_after, feed, notify)
 
@@ -176,10 +177,12 @@ class Window(Gtk.ApplicationWindow):
     def _feed_clicked(self, feed_list, event):
         if event.type == getattr(Gdk.EventType, '2BUTTON_PRESS') and (
                 event.button == Gdk.BUTTON_PRIMARY):
-            visible_feed = feed_list.props.stack.get_visible_child()
+            visible_scroll = feed_list.props.stack.get_visible_child()
+            visible_feed = visible_scroll.get_children()[0]
             for article in visible_feed.articles:
                 CACHE[visible_feed.url].add(article.guid)
             pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
+            visible_feed.set_cursor([0])
             visible_feed.redraw()
             feed_list.set_attention(visible_feed)
             return True
