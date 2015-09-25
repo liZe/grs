@@ -67,10 +67,6 @@ class Feed(Gtk.TreeView):
 
         self.connect('row-activated', self._activated)
 
-    def redraw(self):
-        self.get_bin_window().invalidate_rect(
-                self.get_visible_rect(), invalidate_children=True)
-
     def update(self):
         cursor = self.get_cursor()[0]
         active = self.props.model[cursor[0]][0] if cursor else None
@@ -169,7 +165,7 @@ class Window(Gtk.ApplicationWindow):
                     CACHE[article.feed.url].discard(article.guid)
                 else:
                     CACHE[article.feed.url].add(article.guid)
-                treeview.redraw()
+                treeview.queue_draw()
                 pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
                 self.feed_list.set_attention(feed)
                 return True
@@ -183,7 +179,7 @@ class Window(Gtk.ApplicationWindow):
                 CACHE[visible_feed.url].add(article.guid)
             pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
             visible_feed.set_cursor([0])
-            visible_feed.redraw()
+            visible_feed.queue_draw()
             feed_list.set_attention(visible_feed)
             return True
 
