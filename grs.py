@@ -79,14 +79,16 @@ class Feed(Gtk.TreeView):
 
     def _render_cell(self, column, cell, model, iter_, destroy):
         article = model[iter_][0]
+        title = escape(re.sub(
+            '\s+', ' ', article.title.replace('\n', ' ').strip()))
         content = []
         html_parser = parser.HTMLParser()
         html_parser.handle_data = content.append
         html_parser.feed(article.description)
-        content = ''.join(content)[:1000]
+        content = escape(re.sub(
+            '\s+', ' ', ''.join(content)[:1000].replace('\n', ' ').strip()))
         cell.set_property('markup', '<big>%s</big>\n<small>%s</small>' % (
-            ('%s' if article.read else '<b>%s</b>') % escape(article.title),
-            re.sub('\s+', ' ', escape(content).replace('\n', ' ').strip())))
+            ('%s' if article.read else '<b>%s</b>') % title, content))
 
     def _activated(self, treeview, path, view):
         webbrowser.open(treeview.props.model[path][0].link)
