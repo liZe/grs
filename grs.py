@@ -14,7 +14,7 @@ from xml.etree import ElementTree
 
 CONFIG_PATH = os.path.expanduser('~/.config/grs')
 CACHE_PATH = os.path.expanduser('~/.cache/grs')
-CONFIG = configparser.SafeConfigParser()
+CONFIG = configparser.ConfigParser()
 CONFIG.read(CONFIG_PATH)
 SESSION = Soup.SessionAsync()
 CACHE = (
@@ -80,13 +80,13 @@ class Feed(Gtk.TreeView):
     def _render_cell(self, column, cell, model, iter_, destroy):
         article = model[iter_][0]
         title = escape(re.sub(
-            '\s+', ' ', article.title.replace('\n', ' ').strip()))
+            '\\s+', ' ', article.title.replace('\n', ' ').strip()))
         content = []
         html_parser = parser.HTMLParser()
         html_parser.handle_data = content.append
         html_parser.feed(article.description)
         content = escape(re.sub(
-            '\s+', ' ', ''.join(content)[:1000].replace('\n', ' ').strip()))
+            '\\s+', ' ', ''.join(content)[:1000].replace('\n', ' ').strip()))
         cell.set_property('markup', '<big>%s</big>\n<small>%s</small>' % (
             ('%s' if article.read else '<b>%s</b>') % title, content))
 
@@ -138,7 +138,7 @@ class Window(Gtk.ApplicationWindow):
         old_articles = [article.guid for article in feed.articles]
         xml = ElementTree.fromstring(
             message.props.response_body_data.get_data().strip())
-        feed.namespace = (re.findall('\{.*\}', xml.tag) or ['']).pop()
+        feed.namespace = (re.findall('\\{.*\\}', xml.tag) or ['']).pop()
         feed.articles = [
             Article(feed, tag) for tag_name in ('item', 'entry')
             for tag in xml.iter(feed.namespace + tag_name)]
@@ -198,4 +198,4 @@ class GRS(Gtk.Application):
 
 
 if __name__ == '__main__':
-    GRS().run(sys.argv)
+    GRS(application_id='org.gnome.grs').run(sys.argv)
