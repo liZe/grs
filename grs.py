@@ -28,7 +28,7 @@ class Article(object):
         title = tag.find(self.feed.namespace + 'title').text
         self.title = title.strip() if title else ''
         link_tag = tag.find(self.feed.namespace + 'link')
-        self.link = link_tag.attrib.get('href') or link_tag.text
+        self.link = (link_tag.attrib.get('href') or link_tag.text).strip()
         self.description = ''
         for name in ('description', 'summary', 'content'):
             desc_tag = tag.find(self.feed.namespace + name)
