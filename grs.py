@@ -54,6 +54,7 @@ class Feed(Gtk.TreeView):
         self.url = CONFIG[name]['url']
         self.articles = []
         self.message = Soup.Message.new('GET', self.url)
+        self.message.props.request_headers.append('User-Agent', 'GRS')
 
         super().__init__()
         self.set_model(Gtk.ListStore(object))
