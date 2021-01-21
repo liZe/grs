@@ -30,9 +30,8 @@ class Article(object):
         is_audio = False
         enclosure_tag = tag.find(self.feed.namespace + 'enclosure')
         if (enclosure_tag is not None and 'url' in enclosure_tag.attrib):
-            if ('type' in enclosure_tag.attrib and
-                'audio' in enclosure_tag.attrib['type']):
-                is_audio = True
+            if 'type' in enclosure_tag.attrib:
+                is_audio = 'audio' in enclosure_tag.attrib.get('type', '')
         if is_audio:
             self.link = enclosure_tag.attrib['url'].strip()
         else:
