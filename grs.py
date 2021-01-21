@@ -27,16 +27,15 @@ class Article(object):
         self.feed = feed
         title = tag.find(self.feed.namespace + 'title').text
         self.title = title.strip() if title else ''
-        is_audio = False
+
+        link_tag = tag.find(self.feed.namespace + 'link')
+        self.link = (link_tag.attrib.get('href') or link_tag.text).strip()
+
         enclosure_tag = tag.find(self.feed.namespace + 'enclosure')
-        if (enclosure_tag is not None and 'url' in enclosure_tag.attrib):
-            if 'type' in enclosure_tag.attrib:
-                is_audio = 'audio' in enclosure_tag.attrib.get('type', '')
-        if is_audio:
-            self.link = enclosure_tag.attrib['url'].strip()
-        else:
-            link_tag = tag.find(self.feed.namespace + 'link')
-            self.link = (link_tag.attrib.get('href') or link_tag.text).strip()
+        if enclosure_tag is not None and 'url' in enclosure_tag.attrib:
+            if 'audio' in enclosure_tag.attrib.get('type', ''):
+                self.link = enclosure_tag.attrib['url'].strip()
+
         self.description = ''
         for name in ('description', 'summary', 'content'):
             desc_tag = tag.find(self.feed.namespace + name)
