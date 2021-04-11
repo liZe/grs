@@ -8,9 +8,13 @@ import sys
 import webbrowser
 from collections import defaultdict
 from html import escape, parser
-from gi.repository import GLib, Gtk, Gdk, Notify, Soup
+from gi import require_version
+from gi.repository import GLib, Notify, Soup
 from xml.etree import ElementTree
 
+require_version('Gdk', '3.0')
+require_version('Gtk', '3.0')
+from gi.repository import Gdk, Gtk  # noqa
 
 CONFIG_PATH = os.path.expanduser('~/.config/grs')
 CACHE_PATH = os.path.expanduser('~/.cache/grs')
