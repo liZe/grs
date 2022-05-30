@@ -9,12 +9,14 @@ import webbrowser
 from collections import defaultdict
 from html import escape, parser
 from gi import require_version
-from gi.repository import GLib, Notify, Soup
+from gi.repository import GLib, Notify
 from xml.etree import ElementTree
 
-require_version('Gdk', '3.0')
-require_version('Gtk', '3.0')
-from gi.repository import Gdk, Gtk  # noqa
+require_version('Adw', '1')
+require_version('Gtk', '4.0')
+require_version('Gdk', '4.0')
+require_version('Soup', '2.4')
+from gi.repository import Adw, Gdk, Gtk, Soup  # noqa
 
 CONFIG_PATH = os.path.expanduser('~/.config/grs')
 CACHE_PATH = os.path.expanduser('~/.cache/grs')
@@ -70,8 +72,10 @@ class Feed(Gtk.TreeView):
         super().__init__()
         self.set_model(Gtk.ListStore(object))
         self.set_headers_visible(False)
+        self.set_hexpand(Gtk.Align.END)
         pane_column = Gtk.TreeViewColumn()
         pane_cell = Gtk.CellRendererText()
+        pane_cell.props.xpad = pane_cell.props.ypad = 5
         pane_cell.props.ellipsize = 3  # At the end
         pane_column.pack_start(pane_cell, True)
         pane_column.set_cell_data_func(pane_cell, self._render_cell)
@@ -108,41 +112,46 @@ class Feed(Gtk.TreeView):
 
 class FeedList(Gtk.StackSidebar):
     def set_attention(self, feed):
-        self.props.stack.child_set_property(
-            self.props.stack.get_child_by_name(feed.name), 'needs-attention',
-            any(not article.read for article in feed.articles))
+        attention = any(not article.read for article in feed.articles)
+        page = self.props.stack.get_page(
+            self.props.stack.get_child_by_name(feed.name))
+        page.set_needs_attention(attention)
 
 
 class Window(Gtk.ApplicationWindow):
     def __init__(self, application):
         super(Gtk.ApplicationWindow, self).__init__(application=application)
-        self.set_title('Gnome RSS Stalker')
-        self.set_hide_titlebar_when_maximized(True)
+        self.set_title('GRS')
         self.set_icon_name('edit-find')
 
         self.feed_list = FeedList()
         self.feed_list.set_stack(Gtk.Stack())
         self.feed_list.props.stack.set_transition_type(
             Gtk.StackTransitionType.CROSSFADE)
-        hbox = Gtk.HBox()
-        hbox.pack_start(self.feed_list, False, False, 0)
-        hbox.pack_start(self.feed_list.props.stack, True, True, 0)
-        self.add(hbox)
+        hbox = Gtk.Box.new(Gtk.Orientation.HORIZONTAL, 0)
+        hbox.append(self.feed_list)
+        hbox.append(self.feed_list.props.stack)
+        self.set_child(hbox)
 
-        self.feed_list.connect('button-press-event', self._feed_clicked)
+        gesture = Gtk.GestureClick.new()
+        gesture.connect('pressed', self._feed_clicked)
+        self.feed_list.add_controller(gesture)
 
         for section in CONFIG.sections():
             feed = Feed(section)
             scroll = Gtk.ScrolledWindow()
             scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-            scroll.add(feed)
+            scroll.set_child(feed)
             self.feed_list.props.stack.add_titled(scroll, section, section)
             feed.connect('cursor-changed', self._article_changed, feed)
-            feed.connect('button-press-event', self._article_clicked, feed)
+            gesture = Gtk.GestureClick.new()
+            gesture.set_button(Gdk.BUTTON_MIDDLE)
+            gesture.connect('pressed', self._article_clicked, feed)
+            feed.add_controller(gesture)
 
     def update(self, notify=True):
-        for scroll in self.feed_list.props.stack.get_children():
-            feed = scroll.get_children()[0]
+        for page in self.feed_list.props.stack.get_pages():
+            feed = page.get_child().get_child()
             SESSION.queue_message(
                 feed.message, self.update_after, feed, notify)
 
@@ -170,44 +179,43 @@ class Window(Gtk.ApplicationWindow):
             pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
         self.feed_list.set_attention(feed)
 
-    def _article_clicked(self, treeview, event, feed):
-        if event.button == Gdk.BUTTON_MIDDLE:
-            path = treeview.get_path_at_pos(event.x, event.y)
-            if path:
-                article = treeview.props.model[path[0]][0]
-                if article.guid in CACHE[article.feed.url]:
-                    CACHE[article.feed.url].discard(article.guid)
-                else:
-                    CACHE[article.feed.url].add(article.guid)
-                treeview.queue_draw()
-                pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
-                self.feed_list.set_attention(feed)
-                return True
+    def _article_clicked(self, gesture, clicks, x, y, feed):
+        treeview = gesture.get_widget()
+        path = treeview.get_path_at_pos(x, y)
+        if path:
+            article = treeview.props.model[path[0]][0]
+            if article.guid in CACHE[article.feed.url]:
+                CACHE[article.feed.url].discard(article.guid)
+            else:
+                CACHE[article.feed.url].add(article.guid)
+            treeview.queue_draw()
+            pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
+            self.feed_list.set_attention(feed)
 
-    def _feed_clicked(self, feed_list, event):
-        if event.type == getattr(Gdk.EventType, '2BUTTON_PRESS') and (
-                event.button == Gdk.BUTTON_PRIMARY):
+    def _feed_clicked(self, gesture, clicks, x, y):
+        feed_list = gesture.get_widget()
+        if clicks == 2:
             visible_scroll = feed_list.props.stack.get_visible_child()
-            visible_feed = visible_scroll.get_children()[0]
+            visible_feed = visible_scroll.get_child()
             for article in visible_feed.articles:
                 CACHE[visible_feed.url].add(article.guid)
             pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
             visible_feed.set_cursor([0])
             visible_feed.queue_draw()
             feed_list.set_attention(visible_feed)
-            return True
 
 
-class GRS(Gtk.Application):
+class GRS(Adw.Application):
+    def __init__(self):
+        Adw.Application.__init__(self, application_id='fr.yabz.grs')
+
     def do_activate(self):
         Notify.init('GRS')
         self.window = Window(self)
         self.window.maximize()
-        self.window.connect('destroy', lambda window: sys.exit())
-        self.window.show_all()
+        self.window.show()
         self.window.update(notify=False)
         GLib.timeout_add_seconds(180, lambda: self.window.update() or True)
 
 
-if __name__ == '__main__':
-    GRS(application_id='org.gnome.grs').run(sys.argv)
+GRS().run()
