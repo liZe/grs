@@ -1,43 +1,41 @@
 #!/usr/bin/env python
 
 import configparser
-import os
 import pickle
 import re
-import sys
 import webbrowser
 from collections import defaultdict
 from html import escape, parser
 from gi import require_version
 from gi.repository import GLib, Notify
+from pathlib import Path
 from xml.etree import ElementTree
 
 require_version('Adw', '1')
-require_version('Gtk', '4.0')
 require_version('Gdk', '4.0')
+require_version('Gtk', '4.0')
 require_version('Soup', '2.4')
 from gi.repository import Adw, Gdk, Gtk, Soup  # noqa
 
-CONFIG_PATH = os.path.expanduser('~/.config/grs')
-CACHE_PATH = os.path.expanduser('~/.cache/grs')
+CACHE_PATH = Path.home() / '.cache' / 'grs'
 CONFIG = configparser.ConfigParser()
-CONFIG.read(CONFIG_PATH)
+CONFIG.read(Path.home() / '.config' / 'grs')
 SESSION = Soup.SessionAsync()
 CACHE = (
-    pickle.load(open(CACHE_PATH, 'rb')) if os.path.exists(CACHE_PATH)
+    pickle.loads(CACHE_PATH.read_bytes()) if CACHE_PATH.is_file()
     else defaultdict(set))
 
 
 class Article(object):
     def __init__(self, feed, tag):
         self.feed = feed
-        title = tag.find(self.feed.namespace + 'title').text
+        title = tag.find(f'{self.feed.namespace}title').text
         self.title = title.strip() if title else ''
 
-        link_tag = tag.find(self.feed.namespace + 'link')
+        link_tag = tag.find(f'{self.feed.namespace}link')
         self.link = (link_tag.attrib.get('href') or link_tag.text).strip()
 
-        enclosure_tag = tag.find(self.feed.namespace + 'enclosure')
+        enclosure_tag = tag.find(f'{self.feed.namespace}enclosure')
         if enclosure_tag is not None and 'url' in enclosure_tag.attrib:
             if 'audio' in enclosure_tag.attrib.get('type', ''):
                 self.link = enclosure_tag.attrib['url'].strip()
@@ -123,6 +121,7 @@ class Window(Gtk.ApplicationWindow):
         super(Gtk.ApplicationWindow, self).__init__(application=application)
         self.set_title('GRS')
         self.set_icon_name('edit-find')
+        self.last_article = None
 
         self.feed_list = FeedList()
         self.feed_list.set_stack(Gtk.Stack())
@@ -173,23 +172,27 @@ class Window(Gtk.ApplicationWindow):
         self.feed_list.set_attention(feed)
 
     def _article_changed(self, treeview, feed):
-        if treeview.get_cursor()[0]:
-            article = treeview.props.model[treeview.get_cursor()[0][0]][0]
+        cursor = treeview.get_cursor()[0]
+        if cursor:
+            article = treeview.props.model[cursor[0]][0]
+            if article == self.last_article:
+                self.last_article = None
+                return
             CACHE[article.feed.url].add(article.guid)
-            pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
+            CACHE_PATH.write_bytes(pickle.dumps(CACHE))
         self.feed_list.set_attention(feed)
 
     def _article_clicked(self, gesture, clicks, x, y, feed):
         treeview = gesture.get_widget()
         path = treeview.get_path_at_pos(x, y)
         if path:
-            article = treeview.props.model[path[0]][0]
+            self.last_article = article = treeview.props.model[path[0]][0]
             if article.guid in CACHE[article.feed.url]:
                 CACHE[article.feed.url].discard(article.guid)
             else:
                 CACHE[article.feed.url].add(article.guid)
             treeview.queue_draw()
-            pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
+            CACHE_PATH.write_bytes(pickle.dumps(CACHE))
             self.feed_list.set_attention(feed)
 
     def _feed_clicked(self, gesture, clicks, x, y):
@@ -199,23 +202,20 @@ class Window(Gtk.ApplicationWindow):
             visible_feed = visible_scroll.get_child()
             for article in visible_feed.articles:
                 CACHE[visible_feed.url].add(article.guid)
-            pickle.dump(CACHE, open(CACHE_PATH, 'wb'))
+            CACHE_PATH.write_bytes(pickle.dumps(CACHE))
             visible_feed.set_cursor([0])
             visible_feed.queue_draw()
             feed_list.set_attention(visible_feed)
 
 
 class GRS(Adw.Application):
-    def __init__(self):
-        Adw.Application.__init__(self, application_id='fr.yabz.grs')
-
     def do_activate(self):
         Notify.init('GRS')
         self.window = Window(self)
         self.window.maximize()
-        self.window.show()
+        self.window.present()
         self.window.update(notify=False)
         GLib.timeout_add_seconds(180, lambda: self.window.update() or True)
 
 
-GRS().run()
+GRS(application_id='fr.yabz.grs').run()
